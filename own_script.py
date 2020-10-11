@@ -1,7 +1,11 @@
 from con2img import draw_contourmtcs2image as draw
-from dicom_preprocessor import DicomPreProcessor
+from dicom_preprocessor_old import DicomPreProcessorOld
+from vector_average_calc import VectorAverageCalc
+from dicom_preprocessor import DicomPreprocessor
 
-image_folder = '../hypertrophy/10635813AMR806/la'
-# con_file = '../hypertrophy/10635813AMR806/la/contours.con'
+image_folder = '../hypertrophy'
 
-preprocessor = DicomPreProcessor(image_folder)
+# vec_avg = VectorAverageCalc()
+
+preprocessor = DicomPreprocessor(image_folder)
+preprocessor.process()

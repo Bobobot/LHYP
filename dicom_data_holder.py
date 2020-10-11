@@ -1,8 +1,21 @@
+from dataclasses import dataclass
 
+import numpy as np
+
+@dataclass
 class DicomDataHolder:
 
 	def __init__(self):
-		self.imageOrientationPatient = 0
-		self.imagePositionPatient = 0
-		self.HeartRate = 0
-		self.pixel_array = 0
+		self.hypertrophic: bool
+
+		# 2 chamber
+		self.ch2_systole: np.array
+		self.ch2_diastole: np.array
+
+		# 4 chamber
+		self.ch4_systole: np.array
+		self.ch4_diastole: np.array
+
+		# LVOT
+		self.lvot_systole: np.array
+		self.lvot_diastole: np.array
