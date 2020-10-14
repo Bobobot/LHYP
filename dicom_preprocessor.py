@@ -26,6 +26,12 @@ class DicomPreprocessor:
 		self.root_folder = root_folder
 		# The amount that a normal can differ from the average normal (seen below) to still be considered
 		self.NORMAL_DIFFERENCE_THRESHOLD = 0.4
+		# The file which the preprocessor's progress gets saved to
+		self.progress_file = "progress.rick"
+
+		# We'll create the data folder that the patients' data will reside in
+		if not os.path.exists('data'):
+			os.makedirs('data')
 
 		# Constant vectors for chamber recognition
 		# These are the normals of the plane for each chamber, which is an average calculated from the example database
@@ -81,6 +87,11 @@ class DicomPreprocessor:
 			for file_name in dcm_files:
 				dcm_file = dicom.dcmread(os.path.join(folder_path, file_name))
 				chamber_view_type, negative, heart_phase = self._get_classification(dcm_file)
+				# debug shit, remove
+				# if chamber_view_type == ChamberEnum.CH2:
+					# print(f'{patient_folder}\\{file_name} | inverted: {negative}')
+					# break
+				# end of debug shit
 				pixel_data = self._process_image(dcm_file, chamber_view_type, negative)
 				self._update_data_holder(pixel_data, chamber_view_type, heart_phase)
 
@@ -191,16 +202,17 @@ class DicomPreprocessor:
 				self.data_holder.lvot_diastole = pixel_data
 
 	def _save_state(self, patient_folder):
-		with open(f'data/{patient_folder}.rick') as file:
+		with open(f'data/{patient_folder}.rick', "wb") as file:
 			pickle.dump(self.data_holder, file)
 
-		with open("progress.rick", "a") as file:
+		with open(self.progress_file, "a") as file:
 			file.write(f'{patient_folder}\n')
 
 	def _load_state(self, hyp_folders):
-		with open("progress.rick", "r") as file:
-			for line in file:
-				line = line.strip()  # preprocess line
-				# We remove all patients from the folder list whose data has already been processed
-				hyp_folders.remove(line)
+		if os.path.isfile(self.progress_file):
+			with open(self.progress_file, "r") as file:
+				for line in file:
+					line = line.strip()  # preprocess line
+					# We remove all patients from the folder list whose data has already been processed
+					hyp_folders.remove(line)
 		return hyp_folders
