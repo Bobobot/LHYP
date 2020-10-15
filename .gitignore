@@ -109,3 +109,5 @@ venv.bak/
 
 # Custom
 .idea/
+*.rick
+pickled_data_limited

@@ -19,9 +19,8 @@ class ChamberVectorEnum(Enum):
 class HeartPhaseEnum(Enum):
 	NOTHING, SYSTOLE, DIASTOLE = range(3)
 
-
+# Usage: Call the process() method of this class to start processing the folder that was given in the constructor
 class DicomPreprocessor:
-
 	def __init__(self, root_folder):
 		self.root_folder = root_folder
 		# The amount that a normal can differ from the average normal (seen below) to still be considered
@@ -74,6 +73,7 @@ class DicomPreprocessor:
 
 		# The patient folder is the one with the numbers (eg 10129327AMR806)
 		for patient_folder in hyp_folders:
+			print(f'Processing patient {patient_folder}...')
 			# We read in whether this current dataset is of a hypertrophic patient or not, and set the data holder's value accordingly.
 			# If the patient is an athlete, or is 18 years of age, we skip their dataset
 			skip, hypertrophic = self._is_hypertrophic(patient_folder)
@@ -81,22 +81,23 @@ class DicomPreprocessor:
 			self.data_holder.hypertrophic = hypertrophic
 			folder_path = os.path.join(self.root_folder, patient_folder, "la")
 
-			# This is where we do the actual processing - the _get_classification method classifies the image, which then we
-			# TODO: finish comment
+			# This is where we do the actual processing - the _get_classification method classifies the image, which then
+			# we process, and dump into a pickle file.
 			dcm_files = sorted(os.listdir(folder_path))
+			failed = False
 			for file_name in dcm_files:
-				dcm_file = dicom.dcmread(os.path.join(folder_path, file_name))
-				chamber_view_type, negative, heart_phase = self._get_classification(dcm_file)
-				# debug shit, remove
-				# if chamber_view_type == ChamberEnum.CH2:
-					# print(f'{patient_folder}\\{file_name} | inverted: {negative}')
-					# break
-				# end of debug shit
-				pixel_data = self._process_image(dcm_file, chamber_view_type, negative)
-				self._update_data_holder(pixel_data, chamber_view_type, heart_phase)
+				try:
+					dcm_file = dicom.dcmread(os.path.join(folder_path, file_name))
+					chamber_view_type, negative, heart_phase = self._get_classification(dcm_file)
+					pixel_data = self._process_image(dcm_file, chamber_view_type, negative)
+				except BaseException as e:
+					failed = True
+					print(f'Error while trying to process file {file_name}.')
+					break
+				self._update_data_holder(dcm_file, pixel_data, negative, chamber_view_type, heart_phase)
 
 			# Save the list of already processed patients to a file, and dumps the current patient's data holder
-			self._save_state(patient_folder)
+			if not failed: self._save_state(patient_folder)
 
 			# After we're done processing this patient, we reset the state in order to prepare for the next one
 			self._reset_state()
@@ -148,17 +149,10 @@ class DicomPreprocessor:
 	def _process_image(self, dcm_file, chamber_view_type, negative):
 		pixel_array = dcm_file.pixel_array
 		# We clip the bottom and upper 10% of the pixel data
-		processed_pixel_array = np.clip(pixel_array, np.percentile(pixel_array, 10), np.percentile(pixel_array, 90))
+		processed_pixel_array = np.clip(pixel_array, np.percentile(pixel_array, 10), np.percentile(pixel_array, 99))
 		# We convert the pixel array to store uint8 values instead of uint16, therefore saving space
 		processed_pixel_array *= (255.0 / processed_pixel_array.max())
 		processed_pixel_array = processed_pixel_array.astype(np.uint8)
-		if negative:
-			if chamber_view_type == ChamberEnum.CH2:
-				pass  # TODO mirror and rotate image
-			elif chamber_view_type == ChamberEnum.CH4:
-				pass  # TODO mirror and rotate image
-			elif chamber_view_type == ChamberEnum.LVOT:
-				pass  # TODO mirror and rotate image
 		return processed_pixel_array
 
 	def _find_closest_vector(self, image_orientation_patient):
@@ -180,26 +174,50 @@ class DicomPreprocessor:
 		hypertrophic = file_content != "Normal"
 		return skip, hypertrophic
 
-	def _update_data_holder(self, pixel_data, chamber_view_type, heart_phase):
+	def _update_data_holder(self, dcm_file, pixel_data, negative, chamber_view_type, heart_phase):
 		if heart_phase == HeartPhaseEnum.NOTHING: return  # If it's not a systole or diastole, we don't want to save it
 		systole = heart_phase == HeartPhaseEnum.SYSTOLE  # Just to shorten the code a little
+
+		# A bit of an ugly solution, but I would have had to rewrite the program otherwise. This'll do
+		image_orientation_patient = np.asarray(dcm_file.ImageOrientationPatient).reshape(2, 3)
+		image_orientation_normal = np.cross(image_orientation_patient[0], image_orientation_patient[1])
+
+		#TODO: make the current channel view data a separate variable
 
 		# Ugly, but it do be like that sometimes
 		if chamber_view_type == ChamberEnum.CH2:
 			if systole:
-				self.data_holder.ch2_systole = pixel_data
+				self.data_holder.ch2_systole["pixel_data"] = pixel_data
+				self.data_holder.ch2_systole["image_orientation"] = image_orientation_patient
+				self.data_holder.ch2_systole["normal"] = image_orientation_normal
+				self.data_holder.ch2_systole["is_normal_inverted"] = negative
 			else:
-				self.data_holder.ch2_diastole = pixel_data
+				self.data_holder.ch2_diastole["pixel_data"] = pixel_data
+				self.data_holder.ch2_diastole["image_orientation"] = image_orientation_patient
+				self.data_holder.ch2_diastole["normal"] = image_orientation_normal
+				self.data_holder.ch2_diastole["is_normal_inverted"] = negative
 		elif chamber_view_type == ChamberEnum.CH4:
 			if systole:
-				self.data_holder.ch4_systole = pixel_data
+				self.data_holder.ch4_systole["pixel_data"] = pixel_data
+				self.data_holder.ch4_systole["image_orientation"] = image_orientation_patient
+				self.data_holder.ch4_systole["normal"] = image_orientation_normal
+				self.data_holder.ch4_systole["is_normal_inverted"] = negative
 			else:
-				self.data_holder.ch4_diastole = pixel_data
+				self.data_holder.ch4_diastole["pixel_data"] = pixel_data
+				self.data_holder.ch4_diastole["image_orientation"] = image_orientation_patient
+				self.data_holder.ch4_diastole["normal"] = image_orientation_normal
+				self.data_holder.ch4_diastole["is_normal_inverted"] = negative
 		elif chamber_view_type == ChamberEnum.LVOT:
 			if systole:
-				self.data_holder.lvot_systole = pixel_data
+				self.data_holder.lvot_systole["pixel_data"] = pixel_data
+				self.data_holder.lvot_systole["image_orientation"] = image_orientation_patient
+				self.data_holder.lvot_systole["normal"] = image_orientation_normal
+				self.data_holder.lvot_systole["is_normal_inverted"] = negative
 			else:
-				self.data_holder.lvot_diastole = pixel_data
+				self.data_holder.lvot_diastole["pixel_data"] = pixel_data
+				self.data_holder.lvot_diastole["image_orientation"] = image_orientation_patient
+				self.data_holder.lvot_diastole["normal"] = image_orientation_normal
+				self.data_holder.lvot_diastole["is_normal_inverted"] = negative
 
 	def _save_state(self, patient_folder):
 		with open(f'data/{patient_folder}.rick', "wb") as file:
