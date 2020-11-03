@@ -209,3 +209,30 @@ class CNN(nn.Module):
 		out = self.layer18(out)
 		return out
 
+
+class HeartDataSet(Dataset):
+	def __init__(self, data_folder, transform=None):
+		self.data_folder = data_folder
+		self.transform = transform
+
+		def __len__(self):
+			# TODO: test this because god knows at this point
+			return len(glob.glob1(self.data_folder, "*.rick"))
+
+	def __getitem__(self, index):
+		if torch.is_tensor(index):
+			index = index.tolist()
+
+		pickle_file = sorted(os.listdir(self.data_folder))[index]
+		loaded_pickle = 0
+		with open(os.path.join(self.data_folder, pickle_file), "rb") as file:
+			loaded_pickle = pickle.load(file)
+
+		# TODO: only taking ch2 systole into account
+		sample = {'image': loaded_pickle.ch2_systole, 'hypertrophic': loaded_pickle.hypertrophic}
+
+		if self.transform:
+			print("tf what even is transforming")
+			sample = self.transform(sample)
+
+		return sample
