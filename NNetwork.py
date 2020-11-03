@@ -9,17 +9,27 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
+from torchvision.transforms import transforms
 
 
 class NNetworkHelper:
 
 	def __init__(self, train_folder, test_folder):
-		self.train_patient_data_list = []
-		self.test_patient_data_list = []
 		self.batch_size = 5
+		# The transformation to be performed on every input image
+		# We normalize, and turn our numpy array (0-255) to a tensor (0.0-1.0)
+		trans = transforms.Compose([
+			# We lower the resolution to 110*110, according to the paper
+			transforms.Resize((110, 110)),
+			# These numbers were roughly approximated from a randomly chosen sample
+			transforms.Normalize(mean=40, std=60),
+			transforms.ToTensor()
+		])
+		train_dataset = HeartDataSet(train_folder, trans)
+		test_dataset = HeartDataSet(test_folder, trans)
 
-		self._read_train_data(train_folder)
-		self._read_test_data(test_folder)
+		self.train_loader = DataLoader(dataset=train_dataset, batch_size=self.batch_size, shuffle=True)
+		self.test_loader = DataLoader(dataset=test_dataset, batch_size=self.batch_size, shuffle=False)
 
 		# More information about the model:
 		# https://www.nature.com/articles/s41746-018-0065-x
@@ -29,50 +39,28 @@ class NNetworkHelper:
 		self.criterion = nn.CrossEntropyLoss()  # The way we calculate the loss is defined here
 		self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.025)
 
-	def _read_train_data(self, data_folder):
-		self._read_data(data_folder, self.train_patient_data_list)
-
-	def _read_test_data(self, data_folder):
-		self._read_data(data_folder, self.test_patient_data_list)
-
-	def _read_data(self, data_folder, patient_data_list):
-		patient_pickles = sorted(os.listdir(data_folder))
-		for pickle_file in patient_pickles:
-			pickle_file_path = os.path.join(data_folder, pickle_file)
-			with open(pickle_file_path, "rb") as file:
-				loaded_pickle = pickle.load(file)
-				patient_data_list.append(loaded_pickle)
-
-	def _convert_to_dataset(self, patient_data_list):
-		# TODO: only ch2 systole is taken into account
-		patient_dataset = [x.ch2_systole for x in patient_data_list]
-		data_loader = DataLoader(patient_dataset, batch_size=self.batch_size)
-
-	def preprocess_data(self):
-		# lower resolution to 110*110
-		# TODO: should probably also rotate here or smth
-		for patient_data in itertools.chain(self.train_patient_data_list, self.test_patient_data_list):
-			new_size = (110, 110)
-			patient_data.ch2_systole = cv2.resize(patient_data.ch2_systole, new_size)
-			patient_data.ch2_diastole = cv2.resize(patient_data.ch2_diastole, new_size)
-			patient_data.ch4_systole = cv2.resize(patient_data.ch4_systole, new_size)
-			patient_data.ch4_diastole = cv2.resize(patient_data.ch4_diastole, new_size)
-			patient_data.lvot_systole = cv2.resize(patient_data.lvot_systole, new_size)
-			patient_data.lvot_diastole = cv2.resize(patient_data.lvot_diastole, new_size)
-
 	def train(self, num_epochs):
 		loss_list = []
 		for epoch in range(num_epochs):
-			for patient_data in self.train_patient_data_list:
-				# TODO: currently only training on the ch2 systole
-				output = self.model(patient_data.ch2_systole)
-				loss = self.criterion(output, patient_data.hypertrophic)
+			for i, (images, are_hypertrophic) in enumerate(self.train_loader):
+				outputs = self.model(images)
+				loss = self.criterion(outputs, are_hypertrophic)
 				loss_list.append(loss.item())
 
 				# Backprop and Adam optimisation
 				self.optimizer.zero_grad()
 				loss.backward()
 				self.optimizer.step()
+
+				# TODO: debug wtf this is
+				print(outputs.data)
+				# Track the accuracy
+				# total = labels.size(0)
+				# _, predicted = torch.max(outputs.data, 1)
+				# correct = (predicted == labels).sum().item()
+				# acc_list.append(correct / total)
+
+				# TODO: print smth here
 
 	# TODO: idk hogy ez finished e
 
@@ -82,11 +70,14 @@ class NNetworkHelper:
 			# TODO: other statistics, like average difference, max difference etc.
 			correct = 0
 			total = 0
-			for patient_data in self.test_patient_data_list:
-				# TODO: currently only testing on the ch2 systole
-				output = self.model(patient_data.ch2_systole)
-				result_diff = output.data - int(patient_data.hypertrophic)
+			for images, are_hypertrophic in self.test_loader:
+				outputs = self.model(images)
+				# TODO: calculate results and stuff, currently idk wtf outputs.data even is
+				# result_diff = output.data - int(patient_data.hypertrophic)
 
+				# TODO: print smth here
+
+		# TODO: save the model
 
 
 class CNN(nn.Module):
@@ -232,7 +223,6 @@ class HeartDataSet(Dataset):
 		sample = {'image': loaded_pickle.ch2_systole, 'hypertrophic': loaded_pickle.hypertrophic}
 
 		if self.transform:
-			print("tf what even is transforming")
 			sample = self.transform(sample)
 
 		return sample
