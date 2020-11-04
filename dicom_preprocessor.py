@@ -167,8 +167,8 @@ class DicomPreprocessor:
 		return ChamberVectorEnum.NOTHING
 
 	def _is_hypertrophic(self, patient_folder):
-		meta_file = open(os.path.join(self.root_folder, patient_folder, "meta.txt"), 'rb')
-		file_content = meta_file.read()
+		meta_file = open(os.path.join(self.root_folder, patient_folder, "meta.txt"), 'r')
+		file_content = meta_file.read().split()[-1]
 		meta_file.close()
 		skip = file_content in ("adult_m_sport", "adult_f_sport", "U18_f", "U18_m")  # if any of these are true then we can't check hypertrophy
 		hypertrophic = file_content != "Normal"
