@@ -8,12 +8,26 @@ import cv2
 class TestReader:
 	def __init__(self, filename):
 		self._filename = filename
+		self.win_name = 'test_read'
 
+	#ugly test method pls ignore
 	def load(self):
 		with open(os.path.join("data", self._filename), "rb") as file:
 			loaded_pickle = pickle.load(file)
 			print(loaded_pickle)
-			cv2.namedWindow('2 channel diastole', cv2.WINDOW_NORMAL)
-			cv2.resizeWindow('2 channel diastole', 600, 600)
-			cv2.imshow('2 channel diastole', loaded_pickle.ch2_diastole["pixel_data"])
-			cv2.waitKey()
+
+			cv2.namedWindow(self.win_name, cv2.WINDOW_NORMAL)
+			cv2.resizeWindow(self.win_name, 600, 600)
+
+			self.show_img('2 chamber systole', loaded_pickle.ch2_systole)
+			self.show_img('2 chamber diastole', loaded_pickle.ch2_diastole)
+			self.show_img('4 chamber systole', loaded_pickle.ch4_systole)
+			self.show_img('4 chamber diastole', loaded_pickle.ch4_diastole)
+			self.show_img('lvot diastole', loaded_pickle.lvot_systole)
+			self.show_img('lvot diastole', loaded_pickle.lvot_diastole)
+
+	def show_img(self, new_win_name, pickle_dict):
+		cv2.setWindowTitle(self.win_name, new_win_name)
+		new_win_name = new_win_name
+		cv2.imshow(self.win_name, pickle_dict["pixel_data"])
+		cv2.waitKey()

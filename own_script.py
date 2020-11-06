@@ -14,13 +14,13 @@ image_folder = '../hypertrophy'
 
 # vec_avg = VectorAverageCalc()
 
-preprocessor = DicomPreprocessor(image_folder)
-preprocessor.process()
+# preprocessor = DicomPreprocessor(image_folder)
+# preprocessor.process()
 
-# reader = TestReader("10189984AMR806.rick")
+# reader = TestReader("6211434AMR801.rick")
 # reader.load()
 
 # CNN training test
 
-# nnet = NNetworkHelper("data", "data")
-# nnet.train(1)
+nnet = NNetworkHelper("data", "data")
+nnet.train(1)

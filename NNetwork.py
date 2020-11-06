@@ -14,7 +14,13 @@ from torchvision.transforms import transforms
 class NNetworkHelper:
 
 	def __init__(self, train_folder, test_folder):
-		self.batch_size = 1
+		# initialize CUDA
+		self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+		print(f'Pytorch will utilize the following device: {self.device}')
+
+		self.batch_size = 5
+
+		# TODO: normalization creates barely visible pictures, fix it
 		# The transformation to be performed on every input image
 		# We normalize, and turn our numpy array (0-255) to a tensor (0.0-1.0)
 		trans = transforms.Compose([
@@ -23,7 +29,7 @@ class NNetworkHelper:
 			transforms.Resize((110, 110)),
 			transforms.ToTensor(),
 			# These numbers were roughly approximated from a randomly chosen sample
-			transforms.Normalize(mean=40, std=60)
+			# transforms.Normalize(mean=40, std=60)
 		])
 		train_dataset = HeartDataSet(train_folder, trans)
 		test_dataset = HeartDataSet(test_folder, trans)
@@ -35,7 +41,7 @@ class NNetworkHelper:
 		# https://www.nature.com/articles/s41746-018-0065-x
 		# The learning rate and decay is defined under 'Left Ventricular Hypertrophy Classification'
 
-		self.model = CNN()
+		self.model = CNN().to(self.device)
 		self.criterion = nn.BCELoss()  # The way we calculate the loss is defined here
 		self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.025)
 
@@ -45,8 +51,11 @@ class NNetworkHelper:
 		acc_list = []
 		for epoch in range(num_epochs):
 			for i, batch, in enumerate(self.train_loader):
-				images = batch["image"]
-				are_hypertrophic = batch["hypertrophic"]
+				images = batch["image"].to(self.device)
+				are_hypertrophic = batch["hypertrophic"].to(self.device)
+
+				# cv2.imshow('image', images[0].numpy()[0])
+				# cv2.waitKey()
 
 				outputs = self.model(images)
 				loss = self.criterion(outputs, are_hypertrophic.float())
@@ -58,8 +67,8 @@ class NNetworkHelper:
 				self.optimizer.step()
 
 				# Track the accuracy
-				result_array = outputs.data.numpy()
-				target_array = are_hypertrophic.data.numpy().astype(int)
+				result_array = outputs.cpu().data.numpy()
+				target_array = are_hypertrophic.cpu().data.numpy().astype(int)
 				total = target_array.size
 				difference = 0
 				for batch_num in range(total):
@@ -221,7 +230,7 @@ class CNN(nn.Module):
 		out = self.layer16(out)
 		out = self.layer17(out.view(out.size(0), -1))
 		out = self.layer18(out)
-		return out.view(1)
+		return torch.squeeze(out)
 
 
 class HeartDataSet(Dataset):
@@ -240,6 +249,8 @@ class HeartDataSet(Dataset):
 		loaded_pickle = 0
 		with open(os.path.join(self.data_folder, pickle_file), "rb") as file:
 			loaded_pickle = pickle.load(file)
+
+		print(pickle_file)
 
 		# TODO: only taking ch2 systole into account
 		sample = {'image': loaded_pickle.ch2_systole['pixel_data'], 'hypertrophic': loaded_pickle.hypertrophic}
