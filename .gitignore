@@ -111,3 +111,4 @@ venv.bak/
 .idea/
 *.rick
 pickled_data_limited
+cnn_model.torch

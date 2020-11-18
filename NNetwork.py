@@ -3,17 +3,19 @@ import itertools
 import os
 import pickle
 import cv2
+import numpy as np
 import torch
 
 import torch.nn as nn
 import torch.nn.functional as F
+import nonechucks as nc
 from torch.utils.data import DataLoader, Dataset
 from torchvision.transforms import transforms
 
 
 class NNetworkHelper:
 
-	def __init__(self, train_folder, test_folder):
+	def __init__(self, data_folder):
 		# initialize CUDA
 		self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 		print(f'Pytorch will utilize the following device: {self.device}')
@@ -31,10 +33,12 @@ class NNetworkHelper:
 			# These numbers were roughly approximated from a randomly chosen sample
 			# transforms.Normalize(mean=40, std=60)
 		])
-		train_dataset = HeartDataSet(train_folder, trans)
-		test_dataset = HeartDataSet(test_folder, trans)
+		full_dataset = nc.SafeDataset(HeartDataSet(data_folder, trans))
+		train_dataset, test_dataset = torch.utils.data.random_split(full_dataset, [375, 75])
+		# train_dataset = nc.SafeDataset(HeartDataSet(train_folder, trans))
+		# test_dataset = nc.SafeDataset(HeartDataSet(test_folder, trans))
 
-		self.train_loader = DataLoader(dataset=train_dataset, batch_size=self.batch_size, shuffle=False)  # TODO: shuffle true
+		self.train_loader = DataLoader(dataset=train_dataset, batch_size=self.batch_size, shuffle=True)  # TODO: shuffle true
 		self.test_loader = DataLoader(dataset=test_dataset, batch_size=self.batch_size, shuffle=False)
 
 		# More information about the model:
@@ -46,6 +50,7 @@ class NNetworkHelper:
 		self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.025)
 
 	def train(self, num_epochs):
+		print('Starting training...')
 		total_step = len(self.train_loader)
 		loss_list = []
 		acc_list = []
@@ -76,26 +81,36 @@ class NNetworkHelper:
 				accuracy = 1 - (difference / total)
 				acc_list.append(accuracy)
 
-				# TODO: uncomment this when you actually have data
-				# if (i + 1) % 100 == 0:
-				print(f'Epoch [{epoch + 1}/{num_epochs}], Step [{i + 1}/{total_step}], Loss: {loss.item():.4f}, Accuracy: {accuracy * 100:.2f}%')
+			# if (i + 1) % 25 == 0:
+			print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {np.average(loss_list):.4f}, Accuracy: {np.average(acc_list) * 100:.2f}%')
 
 	# TODO: idk hogy ez finished e
 
 	def test(self):
+		print('\nStarting testing...')
+		acc_list = []
 		self.model.eval()
 		with torch.no_grad():
 			# TODO: other statistics, like average difference, max difference etc.
 			correct = 0
 			total = 0
-			for images, are_hypertrophic in self.test_loader:
+			for batch in self.test_loader:
+				images = batch["image"].to(self.device)
+				are_hypertrophic = batch["hypertrophic"].to(self.device)
 				outputs = self.model(images)
-			# TODO: calculate results and stuff, currently idk wtf outputs.data even is
-			# result_diff = output.data - int(patient_data.hypertrophic)
 
-			# TODO: print smth here
+				result_array = outputs.cpu().data.numpy()
+				target_array = are_hypertrophic.cpu().data.numpy().astype(int)
+				total = target_array.size
+				difference = 0
+				for batch_num in range(total):
+					difference += abs(target_array[batch_num] - result_array[batch_num])
+				accuracy = 1 - (difference / total)
+				acc_list.append(accuracy)
 
-	# TODO: save the model
+			print(f'Final model accuracy: {np.average(acc_list) * 100:.2f}%')
+
+		torch.save(self.model.state_dict(), "cnn_model.torch")
 
 
 class CNN(nn.Module):
@@ -250,10 +265,9 @@ class HeartDataSet(Dataset):
 		with open(os.path.join(self.data_folder, pickle_file), "rb") as file:
 			loaded_pickle = pickle.load(file)
 
-		print(pickle_file)
-
 		# TODO: only taking ch2 systole into account
 		sample = {'image': loaded_pickle.ch2_systole['pixel_data'], 'hypertrophic': loaded_pickle.hypertrophic}
+		# print(loaded_pickle.hypertrophic)
 
 		if self.transform:
 			sample['image'] = self.transform(sample['image'])
