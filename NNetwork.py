@@ -4,6 +4,7 @@ import os
 import pickle
 import cv2
 import numpy as np
+import sklearn
 import torch
 
 import torch.nn as nn
@@ -35,6 +36,9 @@ class NNetworkHelper:
 		])
 		full_dataset = nc.SafeDataset(HeartDataSet(data_folder, trans))
 		train_dataset, test_dataset = torch.utils.data.random_split(full_dataset, [375, 75])
+
+		# train_dataset, test_dataset = sklearn.model_selection.train_test_split(full_dataset, 0.25, 0.75, random_state=1, stratify=)
+
 		# train_dataset = nc.SafeDataset(HeartDataSet(train_folder, trans))
 		# test_dataset = nc.SafeDataset(HeartDataSet(test_folder, trans))
 
@@ -54,35 +58,39 @@ class NNetworkHelper:
 		total_step = len(self.train_loader)
 		loss_list = []
 		acc_list = []
+		f1score_list = []
 		for epoch in range(num_epochs):
+			batch_loss_list = []
+			batch_acc_list = []
 			for i, batch, in enumerate(self.train_loader):
 				images = batch["image"].to(self.device)
 				are_hypertrophic = batch["hypertrophic"].to(self.device)
 
-				# cv2.imshow('image', images[0].numpy()[0])
-				# cv2.waitKey()
-
+				# get network outputs and calc loss
 				outputs = self.model(images)
 				loss = self.criterion(outputs, are_hypertrophic.float())
-				loss_list.append(loss.item())
+				batch_loss_list.append(loss.item())
 
-				# Backprop and Adam optimisation
+				# backprop and Adam optimisation
 				self.optimizer.zero_grad()
 				loss.backward()
 				self.optimizer.step()
 
-				# Track the accuracy
+				# converting to numpy arrays
 				result_array = outputs.cpu().data.numpy()
 				target_array = are_hypertrophic.cpu().data.numpy().astype(int)
+
+				# Track the accuracy
 				total = target_array.size
 				difference = 0
 				for batch_num in range(total):
 					difference += abs(target_array[batch_num] - result_array[batch_num])
 				accuracy = 1 - (difference / total)
-				acc_list.append(accuracy)
+				batch_acc_list.append(accuracy)
 
-			# if (i + 1) % 25 == 0:
-			print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {np.average(loss_list):.4f}, Accuracy: {np.average(acc_list) * 100:.2f}%')
+			print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {np.average(batch_loss_list):.4f}, Accuracy: {np.average(batch_acc_list) * 100:.2f}%')
+			loss_list.extend(batch_loss_list)
+			acc_list.extend(batch_acc_list)
 
 	# TODO: idk hogy ez finished e
 
