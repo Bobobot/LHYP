@@ -5,7 +5,9 @@ import pickle
 import cv2
 import numpy as np
 import sklearn
+import sklearn.metrics
 import torch
+import matplotlib.pyplot as plt
 
 import torch.nn as nn
 import torch.nn.functional as F
@@ -28,21 +30,25 @@ class NNetworkHelper:
 		# We normalize, and turn our numpy array (0-255) to a tensor (0.0-1.0)
 		trans = transforms.Compose([
 			transforms.ToPILImage(),
+			# transforms.Resize((240, 240)),
+			transforms.CenterCrop((150, 150)),
 			# We lower the resolution to 110*110, according to the paper
 			transforms.Resize((110, 110)),
 			transforms.ToTensor(),
 			# These numbers were roughly approximated from a randomly chosen sample
 			# transforms.Normalize(mean=40, std=60)
 		])
+
+		# TODO: seperate train, validation and test folders manually
 		full_dataset = nc.SafeDataset(HeartDataSet(data_folder, trans))
-		train_dataset, test_dataset = torch.utils.data.random_split(full_dataset, [375, 75])
+		train_dataset, test_dataset = torch.utils.data.random_split(full_dataset, [750, 150])
 
 		# train_dataset, test_dataset = sklearn.model_selection.train_test_split(full_dataset, 0.25, 0.75, random_state=1, stratify=)
 
 		# train_dataset = nc.SafeDataset(HeartDataSet(train_folder, trans))
 		# test_dataset = nc.SafeDataset(HeartDataSet(test_folder, trans))
 
-		self.train_loader = DataLoader(dataset=train_dataset, batch_size=self.batch_size, shuffle=True)  # TODO: shuffle true
+		self.train_loader = DataLoader(dataset=train_dataset, batch_size=self.batch_size, shuffle=True)
 		self.test_loader = DataLoader(dataset=test_dataset, batch_size=self.batch_size, shuffle=False)
 
 		# More information about the model:
@@ -59,6 +65,10 @@ class NNetworkHelper:
 		loss_list = []
 		acc_list = []
 		f1score_list = []
+		# data for f1 score
+		true_pos = 0
+		false_pos = 0
+		false_neg = 0
 		for epoch in range(num_epochs):
 			batch_loss_list = []
 			batch_acc_list = []
@@ -80,19 +90,38 @@ class NNetworkHelper:
 				result_array = outputs.cpu().data.numpy()
 				target_array = are_hypertrophic.cpu().data.numpy().astype(int)
 
-				# Track the accuracy
+				# calc classification report
+				# print(sklearn.metrics.classification_report(target_array, result_array.round(), target_names=['False', 'True']))
+
+				# Track accuracy and data for f1-score
 				total = target_array.size
-				difference = 0
 				for batch_num in range(total):
-					difference += abs(target_array[batch_num] - result_array[batch_num])
-				accuracy = 1 - (difference / total)
-				batch_acc_list.append(accuracy)
+					difference = abs(target_array[batch_num] - result_array[batch_num])
+					accuracy = 1 - difference
+					batch_acc_list.append(accuracy)
 
-			print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {np.average(batch_loss_list):.4f}, Accuracy: {np.average(batch_acc_list) * 100:.2f}%')
-			loss_list.extend(batch_loss_list)
-			acc_list.extend(batch_acc_list)
+					# f1-score
+					if target_array[batch_num] == 1:
+						# If the accuracy is larger than 0.5, the model has guessed successfully
+						if accuracy > 0.5:
+							true_pos += 1
+						else:
+							false_neg += 1
+					else:  # target is false
+						if accuracy < 0.5:
+							false_pos += 1  # we guessed true even though we shouldn't have
 
-	# TODO: idk hogy ez finished e
+			# Calculate F1-score
+			precision = true_pos / (true_pos + false_pos)
+			recall = true_pos / (true_pos + false_neg)
+			f1_score = 2 * (precision * recall) / (precision + recall)
+			f1score_list.append(f1_score)
+
+			print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {np.average(batch_loss_list):.4f}, Accuracy: {np.average(batch_acc_list) * 100:.2f}%, F1-score: {f1_score:.3f}')
+			loss_list.append(np.average(batch_loss_list))
+			acc_list.append(np.average(batch_acc_list))
+		self._draw_plots(loss_list, f1score_list)
+
 
 	def test(self):
 		print('\nStarting testing...')
@@ -119,6 +148,20 @@ class NNetworkHelper:
 			print(f'Final model accuracy: {np.average(acc_list) * 100:.2f}%')
 
 		torch.save(self.model.state_dict(), "cnn_model.torch")
+
+	def _draw_plots(self, loss_list, f1score_list):
+		l_fig, l_ax = plt.subplots()
+		l_ax.plot(loss_list, label='loss', color='red')
+		l_ax.set_xlabel('epoch')
+		l_ax.set_ylabel('loss')
+
+		f_fig, f_ax = plt.subplots()
+		f_ax.plot(f1score_list, label='f1 score', color='green')
+		f_ax.set_xlabel('epoch')
+		f_ax.set_ylabel('f1 score')
+
+		l_fig.show()
+		f_fig.show()
 
 
 class CNN(nn.Module):
@@ -260,24 +303,46 @@ class HeartDataSet(Dataset):
 	def __init__(self, data_folder, transform=None):
 		self.data_folder = data_folder
 		self.transform = transform
+		self._num_of_patient_files = len(glob.glob1(self.data_folder, "*.rick"))
+		# How many images a patient's file has
+		# For example, if you want to use both the ch2 systole and ch2 diastole of a patient,
+		# this value would be 2
+		self.patient_images = 2
 
 	def __len__(self):
-		return len(glob.glob1(self.data_folder, "*.rick"))
+		return self._num_of_patient_files * self.patient_images
 
 	def __getitem__(self, index):
 		if torch.is_tensor(index):
 			index = index.tolist()
 
-		pickle_file = sorted(os.listdir(self.data_folder))[index]
+		# iteration refers to which type of image we're currently indexing. (chamber view + systole/diastole)
+		# the true index is the index inside the collection of those specific images.
+		iteration = np.math.floor((index + 1) / self._num_of_patient_files)
+		true_index = index % self._num_of_patient_files
+
+		pickle_file = sorted(os.listdir(self.data_folder))[true_index]
 		loaded_pickle = 0
 		with open(os.path.join(self.data_folder, pickle_file), "rb") as file:
 			loaded_pickle = pickle.load(file)
 
-		# TODO: only taking ch2 systole into account
-		sample = {'image': loaded_pickle.ch2_systole['pixel_data'], 'hypertrophic': loaded_pickle.hypertrophic}
+		# TODO: only taking ch2 into account (maybe this'll remain idk)
+		if iteration == 0:
+			sample = {'image': loaded_pickle.ch2_systole['pixel_data'], 'hypertrophic': loaded_pickle.hypertrophic}
+		elif iteration == 1:
+			sample = {'image': loaded_pickle.ch2_diastole['pixel_data'], 'hypertrophic': loaded_pickle.hypertrophic}
+		else:
+			print("Error while trying to read .rick file: iteration count too big")
 		# print(loaded_pickle.hypertrophic)
+
+		# display image before transformation
+		# cv2.imshow('before', sample['image'])
 
 		if self.transform:
 			sample['image'] = self.transform(sample['image'])
+
+		# display image after transformation
+		# cv2.imshow('after', sample['image'].detach().numpy()[0])
+		# cv2.waitKey()
 
 		return sample
