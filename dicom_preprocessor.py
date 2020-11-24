@@ -15,9 +15,9 @@ class ChamberEnum(Enum):
 class ChamberVectorEnum(Enum):
 	NOTHING, CH2_VEC, CH4_VEC, LVOT_VEC, CH2_VEC_INVERTED, CH4_VEC_INVERTED, LVOT_VEC_INVERTED = range(7)
 
-
+# EXTRA refers to every xth picture that we save between the systole and diastole so that we have more data to work with
 class HeartPhaseEnum(Enum):
-	NOTHING, SYSTOLE, DIASTOLE = range(3)
+	NOTHING, SYSTOLE, DIASTOLE, EXTRA = range(4)
 
 # Usage: Call the process() method of this class to start processing the folder that was given in the constructor
 class DicomPreprocessor:
@@ -138,11 +138,14 @@ class DicomPreprocessor:
 		# We make the (reasonable) assumption that if a one of the patient's scan of a specific chamber is inverted,
 		# then the rest of their scans of the same chamber will be inverted too
 		self._chamber_counter[chamber_view_type] += 1
+		cham_count = self._chamber_counter[chamber_view_type]
 		heart_phase = HeartPhaseEnum.NOTHING
-		if self._chamber_counter[chamber_view_type] == 9:
+		if cham_count == 9:
 			heart_phase = HeartPhaseEnum.SYSTOLE
-		elif self._chamber_counter[chamber_view_type] == 24:
+		elif cham_count == 24:
 			heart_phase = HeartPhaseEnum.DIASTOLE
+		elif 9 < cham_count < 24 and cham_count % 3 == 0:
+			heart_phase = HeartPhaseEnum.EXTRA
 		return chamber_view_type, negative, heart_phase
 
 	# clips the top and bottom percentile, converts the datatype to uint8, and mirrors & rotates the image if needed
@@ -182,42 +185,37 @@ class DicomPreprocessor:
 		image_orientation_patient = np.asarray(dcm_file.ImageOrientationPatient).reshape(2, 3)
 		image_orientation_normal = np.cross(image_orientation_patient[0], image_orientation_patient[1])
 
-		#TODO: make the current channel view data a separate variable
-
 		# Ugly, but it do be like that sometimes
+		curr_view = 0
 		if chamber_view_type == ChamberEnum.CH2:
-			if systole:
-				self.data_holder.ch2_systole["pixel_data"] = pixel_data
-				self.data_holder.ch2_systole["image_orientation"] = image_orientation_patient
-				self.data_holder.ch2_systole["normal"] = image_orientation_normal
-				self.data_holder.ch2_systole["is_normal_inverted"] = negative
-			else:
-				self.data_holder.ch2_diastole["pixel_data"] = pixel_data
-				self.data_holder.ch2_diastole["image_orientation"] = image_orientation_patient
-				self.data_holder.ch2_diastole["normal"] = image_orientation_normal
-				self.data_holder.ch2_diastole["is_normal_inverted"] = negative
+			if heart_phase == HeartPhaseEnum.SYSTOLE:
+				curr_view = self.data_holder.ch2_systole
+			elif heart_phase == HeartPhaseEnum.DIASTOLE:
+				curr_view = self.data_holder.ch2_diastole
+			elif heart_phase == HeartPhaseEnum.EXTRA:
+				self.data_holder.ch2_extra.append(dict())
+				curr_view = self.data_holder.ch2_extra[-1]
 		elif chamber_view_type == ChamberEnum.CH4:
-			if systole:
-				self.data_holder.ch4_systole["pixel_data"] = pixel_data
-				self.data_holder.ch4_systole["image_orientation"] = image_orientation_patient
-				self.data_holder.ch4_systole["normal"] = image_orientation_normal
-				self.data_holder.ch4_systole["is_normal_inverted"] = negative
-			else:
-				self.data_holder.ch4_diastole["pixel_data"] = pixel_data
-				self.data_holder.ch4_diastole["image_orientation"] = image_orientation_patient
-				self.data_holder.ch4_diastole["normal"] = image_orientation_normal
-				self.data_holder.ch4_diastole["is_normal_inverted"] = negative
+			if heart_phase == HeartPhaseEnum.SYSTOLE:
+				curr_view = self.data_holder.ch4_systole
+			elif heart_phase == HeartPhaseEnum.DIASTOLE:
+				curr_view = self.data_holder.ch4_diastole
+			elif heart_phase == HeartPhaseEnum.EXTRA:
+				self.data_holder.ch4_extra.append(dict())
+				curr_view = self.data_holder.ch4_extra[-1]
 		elif chamber_view_type == ChamberEnum.LVOT:
-			if systole:
-				self.data_holder.lvot_systole["pixel_data"] = pixel_data
-				self.data_holder.lvot_systole["image_orientation"] = image_orientation_patient
-				self.data_holder.lvot_systole["normal"] = image_orientation_normal
-				self.data_holder.lvot_systole["is_normal_inverted"] = negative
-			else:
-				self.data_holder.lvot_diastole["pixel_data"] = pixel_data
-				self.data_holder.lvot_diastole["image_orientation"] = image_orientation_patient
-				self.data_holder.lvot_diastole["normal"] = image_orientation_normal
-				self.data_holder.lvot_diastole["is_normal_inverted"] = negative
+			if heart_phase == HeartPhaseEnum.SYSTOLE:
+				curr_view = self.data_holder.lvot_systole
+			elif heart_phase == HeartPhaseEnum.DIASTOLE:
+				curr_view = self.data_holder.lvot_diastole
+			elif heart_phase == HeartPhaseEnum.EXTRA:
+				self.data_holder.lvot_extra.append(dict())
+				curr_view = self.data_holder.lvot_extra[-1]
+
+		curr_view["pixel_data"] = pixel_data
+		curr_view["image_orientation"] = image_orientation_patient
+		curr_view["normal"] = image_orientation_normal
+		curr_view["is_normal_inverted"] = negative
 
 	def _save_state(self, patient_folder):
 		with open(f'data/{patient_folder}.rick', "wb") as file:
