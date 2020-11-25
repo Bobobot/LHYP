@@ -23,5 +23,5 @@ image_folder = '../hypertrophy'
 # CNN training test
 
 nnet = NNetworkHelper("data")
-nnet.train(15)
+nnet.train(25)
 nnet.test()

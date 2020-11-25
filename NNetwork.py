@@ -24,6 +24,8 @@ class NNetworkHelper:
 		print(f'Pytorch will utilize the following device: {self.device}')
 
 		self.batch_size = 5
+		self.learning_rate = 0.025
+		self.lr_decay = 0.85
 
 		# TODO: normalization creates barely visible pictures, fix it
 		# The transformation to be performed on every input image
@@ -57,7 +59,8 @@ class NNetworkHelper:
 
 		self.model = CNN().to(self.device)
 		self.criterion = nn.BCELoss()  # The way we calculate the loss is defined here
-		self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.025)
+		self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate,)
+		self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=self.lr_decay)
 
 	def train(self, num_epochs):
 		print('Starting training...')
@@ -120,6 +123,8 @@ class NNetworkHelper:
 			print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {np.average(batch_loss_list):.4f}, Accuracy: {np.average(batch_acc_list) * 100:.2f}%, F1-score: {f1_score:.3f}')
 			loss_list.append(np.average(batch_loss_list))
 			acc_list.append(np.average(batch_acc_list))
+
+			self.scheduler.step()  # apply learning rate decay
 		self._draw_plots(loss_list, f1score_list)
 
 
