@@ -25,6 +25,7 @@ class NNetworkHelper:
 
 		self.batch_size = 5
 		self.learning_rate = 0.00001
+		# self.learning_rate = 0.025
 		# self.lr_decay = 0.85
 
 		# The transformation to be performed on every input image
@@ -32,14 +33,18 @@ class NNetworkHelper:
 		trans = transforms.Compose([
 			transforms.ToPILImage(),
 			transforms.Resize((240, 240)),
-			transforms.CenterCrop((150, 150)),
+			#data augmentation
+			transforms.RandomRotation(45),
+			transforms.RandomCrop((150, 150)),
+			transforms.RandomHorizontalFlip(),
+			#end of data augmentation
+			# transforms.CenterCrop((150, 150)),
 			# We lower the resolution to 110*110, according to the paper
 			transforms.Resize((110, 110)),
 			transforms.ToTensor(),
 			# These numbers were roughly approximated from a randomly chosen sample
 		])
 
-		# TODO: seperate train, validation and test folders manually
 		full_dataset = nc.SafeDataset(HeartDataSet(data_folder, trans))
 		train_dataset, test_dataset = torch.utils.data.random_split(full_dataset, [675, 135])
 
@@ -184,9 +189,11 @@ class NNetworkHelper:
 		torch.save(self.model.state_dict(), "cnn_model.torch")
 
 	def _draw_plots(self, loss_list, f1score_list):
+		plt.rcParams["font.size"] = "14"
+
 		l_fig, l_ax = plt.subplots()
 		l_ax.plot(loss_list, label='Loss (train)', color='red')
-		l_ax.plot(self.validate_loss_list, label='Loss (validation)', color='purple')
+		l_ax.plot(self.validate_loss_list, label='Loss (validation)', color='gold')
 		l_ax.set_xlabel('Epoch')
 		l_ax.set_ylabel('Loss')
 		handles, labels = l_ax.get_legend_handles_labels()
