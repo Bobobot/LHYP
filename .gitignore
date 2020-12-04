@@ -112,3 +112,4 @@ venv.bak/
 *.rick
 pickled_data_limited
 cnn_model.torch
+plots/

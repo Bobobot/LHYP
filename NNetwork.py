@@ -24,26 +24,24 @@ class NNetworkHelper:
 		print(f'Pytorch will utilize the following device: {self.device}')
 
 		self.batch_size = 5
-		self.learning_rate = 0.025
-		self.lr_decay = 0.85
+		self.learning_rate = 0.00001
+		# self.lr_decay = 0.85
 
-		# TODO: normalization creates barely visible pictures, fix it
 		# The transformation to be performed on every input image
-		# We normalize, and turn our numpy array (0-255) to a tensor (0.0-1.0)
+		# We crop, resize, and then turn our numpy array (0-255) to a tensor (0.0-1.0)
 		trans = transforms.Compose([
 			transforms.ToPILImage(),
-			# transforms.Resize((240, 240)),
+			transforms.Resize((240, 240)),
 			transforms.CenterCrop((150, 150)),
 			# We lower the resolution to 110*110, according to the paper
 			transforms.Resize((110, 110)),
 			transforms.ToTensor(),
 			# These numbers were roughly approximated from a randomly chosen sample
-			# transforms.Normalize(mean=40, std=60)
 		])
 
 		# TODO: seperate train, validation and test folders manually
 		full_dataset = nc.SafeDataset(HeartDataSet(data_folder, trans))
-		train_dataset, test_dataset = torch.utils.data.random_split(full_dataset, [750, 150])
+		train_dataset, test_dataset = torch.utils.data.random_split(full_dataset, [675, 135])
 
 		# train_dataset, test_dataset = sklearn.model_selection.train_test_split(full_dataset, 0.25, 0.75, random_state=1, stratify=)
 
@@ -60,7 +58,12 @@ class NNetworkHelper:
 		self.model = CNN().to(self.device)
 		self.criterion = nn.BCELoss()  # The way we calculate the loss is defined here
 		self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate,)
-		self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=self.lr_decay)
+		# self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=self.lr_decay)
+
+		# variables defined here so we preserve data between validation
+		self.validate_loss_list = []
+		self.validate_acc_list = []
+		self.validate_f1score_list = []
 
 	def train(self, num_epochs):
 		print('Starting training...')
@@ -124,49 +127,83 @@ class NNetworkHelper:
 			loss_list.append(np.average(batch_loss_list))
 			acc_list.append(np.average(batch_acc_list))
 
-			self.scheduler.step()  # apply learning rate decay
-		self._draw_plots(loss_list, f1score_list)
+			self.validate()
 
+			self._draw_plots(loss_list, f1score_list)
+			# self.scheduler.step()  # apply learning rate decay
 
-	def test(self):
-		print('\nStarting testing...')
-		acc_list = []
+	def validate(self):
 		self.model.eval()
+
+		# data for f1 score
+		true_pos = 0
+		false_pos = 0
+		false_neg = 0
 		with torch.no_grad():
-			# TODO: other statistics, like average difference, max difference etc.
-			correct = 0
-			total = 0
+			batch_loss_list = []
+			batch_acc_list = []
 			for batch in self.test_loader:
 				images = batch["image"].to(self.device)
 				are_hypertrophic = batch["hypertrophic"].to(self.device)
 				outputs = self.model(images)
+				loss = self.criterion(outputs, are_hypertrophic.float())
+				batch_loss_list.append(loss.item())
 
 				result_array = outputs.cpu().data.numpy()
 				target_array = are_hypertrophic.cpu().data.numpy().astype(int)
-				total = target_array.size
-				difference = 0
-				for batch_num in range(total):
-					difference += abs(target_array[batch_num] - result_array[batch_num])
-				accuracy = 1 - (difference / total)
-				acc_list.append(accuracy)
 
-			print(f'Final model accuracy: {np.average(acc_list) * 100:.2f}%')
+				# Track accuracy and data for f1-score
+				total = target_array.size
+				for batch_num in range(total):
+					difference = abs(target_array[batch_num] - result_array[batch_num])
+					accuracy = 1 - difference
+					batch_acc_list.append(accuracy)
+
+					# f1-score
+					if target_array[batch_num] == 1:
+						# If the accuracy is larger than 0.5, the model has guessed successfully
+						if accuracy > 0.5:
+							true_pos += 1
+						else:
+							false_neg += 1
+					else:  # target is false
+						if accuracy < 0.5:
+							false_pos += 1  # we guessed true even though we shouldn't have
+
+			# Calculate F1-score
+			precision = true_pos / (true_pos + false_pos)
+			recall = true_pos / (true_pos + false_neg)
+			f1_score = 2 * (precision * recall) / (precision + recall)
+			self.validate_f1score_list.append(f1_score)
+
+			self.validate_loss_list.append(np.average(batch_loss_list))
+			self.validate_acc_list.append(np.average(batch_acc_list))
+
+			print(f'Testing F1-score: {f1_score:.3f}')
 
 		torch.save(self.model.state_dict(), "cnn_model.torch")
 
 	def _draw_plots(self, loss_list, f1score_list):
 		l_fig, l_ax = plt.subplots()
-		l_ax.plot(loss_list, label='loss', color='red')
-		l_ax.set_xlabel('epoch')
-		l_ax.set_ylabel('loss')
+		l_ax.plot(loss_list, label='Loss (train)', color='red')
+		l_ax.plot(self.validate_loss_list, label='Loss (validation)', color='purple')
+		l_ax.set_xlabel('Epoch')
+		l_ax.set_ylabel('Loss')
+		handles, labels = l_ax.get_legend_handles_labels()
+		l_ax.legend(handles, labels)
 
 		f_fig, f_ax = plt.subplots()
-		f_ax.plot(f1score_list, label='f1 score', color='green')
-		f_ax.set_xlabel('epoch')
-		f_ax.set_ylabel('f1 score')
+		f_ax.plot(f1score_list, label='F1 score (train)', color='green')
+		f_ax.plot(self.validate_f1score_list, label='F1 score (validation)', color='blue')
+		f_ax.set_xlabel('Epoch')
+		f_ax.set_ylabel('F1 score')
+		handles, labels = f_ax.get_legend_handles_labels()
+		f_ax.legend(handles, labels)
 
 		l_fig.show()
 		f_fig.show()
+		l_fig.savefig("plots/loss_plot.png")
+		f_fig.savefig("plots/f1_plot.png")
 
 
 class CNN(nn.Module):
@@ -323,7 +360,7 @@ class HeartDataSet(Dataset):
 
 		# iteration refers to which type of image we're currently indexing. (chamber view + systole/diastole)
 		# the true index is the index inside the collection of those specific images.
-		iteration = np.math.floor((index + 1) / self._num_of_patient_files)
+		iteration = np.math.floor(index / self._num_of_patient_files)
 		true_index = index % self._num_of_patient_files
 
 		pickle_file = sorted(os.listdir(self.data_folder))[true_index]
@@ -337,7 +374,11 @@ class HeartDataSet(Dataset):
 		elif iteration == 1:
 			sample = {'image': loaded_pickle.ch2_diastole['pixel_data'], 'hypertrophic': loaded_pickle.hypertrophic}
 		else:
-			print("Error while trying to read .rick file: iteration count too big")
+			print(f'Error while trying to read .rick file: iteration count too big')
+			print(f'index: {index}')
+			print(f'true_index: {true_index}')
+			print(f'iteration: {iteration}')
+			print(f'num of patient images: {self._num_of_patient_files}')
 		# print(loaded_pickle.hypertrophic)
 
 		# display image before transformation

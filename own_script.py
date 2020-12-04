@@ -24,4 +24,4 @@ image_folder = '../hypertrophy'
 
 nnet = NNetworkHelper("data")
 nnet.train(25)
-nnet.test()
+nnet.validate()

@@ -148,7 +148,7 @@ class DicomPreprocessor:
 			heart_phase = HeartPhaseEnum.EXTRA
 		return chamber_view_type, negative, heart_phase
 
-	# clips the top and bottom percentile, converts the datatype to uint8, and mirrors & rotates the image if needed
+	# clips the top and bottom percentile, converts the datatype to uint8
 	def _process_image(self, dcm_file, chamber_view_type, negative):
 		pixel_array = dcm_file.pixel_array
 		# We clip the bottom and upper 10% of the pixel data
