@@ -1,3 +1,4 @@
+import math
 import os
 import pickle
 import random
@@ -16,6 +17,10 @@ class HypertrophyFileManager:
 			print("ERROR: sum of percentages must be 100")
 			return
 
+		file_numbers = []
+		for perc in percentages:
+			file_numbers.append(math.floor(len(pickle_files) * (perc / 100)))
+
 		for folder_name in folder_names:
 			folder_path = os.path.join(data_folder, folder_name)
 			if not os.path.exists(folder_path):
@@ -25,15 +30,18 @@ class HypertrophyFileManager:
 		attempt_count = 0
 		list_of_file_lists = []
 		while not ratios_good:
+			pickle_files_copy = pickle_files.copy()
 			list_of_file_lists.clear()
 			ratios_good = True
 			print(f'attempt {attempt_count + 1}')
 			attempt_count += 1
 
 			list_of_ratios = []
-			for perc in percentages:
+			for file_number in file_numbers:
 				list_of_ratios.clear()
-				list_of_file_lists.append(random.sample(pickle_files, round(len(pickle_files) * (perc / 100))))
+				list_of_files = random.sample(pickle_files_copy, file_number)
+				pickle_files_copy = [file for file in pickle_files_copy if file not in list_of_files]
+				list_of_file_lists.append(list_of_files)
 			for file_list in list_of_file_lists:
 				_, _, ratio = self.check_ratio_list(data_folder, file_list)
 				list_of_ratios.append(ratio)

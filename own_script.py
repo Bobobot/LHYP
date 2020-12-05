@@ -24,6 +24,6 @@ hyp_man = HypertrophyFileManager()
 hyp_man.separate_files("data", (75, 15, 10), ("train", "validate", "test"), 0.1)
 
 
-# nnet = NNetworkHelper("data")
+# nnet = NNetworkHelper("data/train", "data/validate", "data/test")
 # nnet.train(25)
 # nnet.validate()
